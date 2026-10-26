@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>تایپوگرافی پادکست</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--line:#334155;--tx:#f1f5f9;--mut:#94a3b8;--ac:#facc15}
+*{box-sizing:border-box}
+body{margin:0;padding:16px;max-width:760px;margin-inline:auto;background:var(--bg);color:var(--tx);font:16px/1.6 Tahoma,"Segoe UI",system-ui,sans-serif}
+h1{font-size:22px;margin:0 0 12px}
+section,details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+label{display:block;color:var(--mut);font-size:14px;margin-top:8px}
+input,textarea,select{width:100%;background:var(--bg);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit}
+button,label.b{display:inline-block;background:var(--line);color:var(--tx);border:0;border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer;margin:0}
+button.p{background:var(--ac);color:#111;font-weight:700}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+#log{position:fixed;left:12px;right:12px;bottom:12px;z-index:9;background:#0b1220;border:1px solid var(--line);border-radius:10px;padding:8px 12px;color:var(--ac);white-space:pre-wrap}#log:empty{display:none}#log.err{color:#fb7185}
+body{padding-bottom:110px}
+.row{border:1px solid var(--line);border-inline-start:6px solid var(--ac);border-radius:12px;padding:12px;margin:22px 0;background:#172338}
+.row:nth-child(even){border-inline-start-color:#38bdf8;background:#1b2b44}
+.hd{display:flex;justify-content:space-between;align-items:center;color:var(--tx);font-weight:700;margin-bottom:10px;padding-bottom:8px;border-bottom:1px dashed var(--line)}
+.hd small{color:var(--mut);font-weight:400}
+.t{display:grid;grid-template-columns:auto 1fr 1fr 1.4fr auto;gap:6px;margin-bottom:6px}
+.im{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
+.im input{flex:1;min-width:120px}
+.sg{color:var(--mut);font-size:14px}.n{color:var(--ac);font-weight:700;min-width:16px;text-align:center}.ok{color:#4ade80}.no{color:#fb7185}
+textarea{direction:rtl}
+#gal{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+#gal img{height:90px;border-radius:8px;background:repeating-conic-gradient(#334155 0 25%,#1e293b 0 50%) 0 0/16px 16px}
+</style>
+</head>
+<body>
+<h1>تایپوگرافی پادکست <small style="color:var(--mut);font-size:14px">نسخه ۷</small></h1>
+
+<details id="cfg"><summary>تنظیمات (فقط یک‌بار)</summary>
+<label>Groq API Key<input id="groq" type="password" autocomplete="off"></label>
+<label>GitHub Token (Contents + Actions: write)<input id="gh" type="password" autocomplete="off"></label>
+<label>ریپو (مثلاً amir/typo-studio)<input id="repo" dir="ltr"></label>
+</details>
+
+<details><summary>کتابخانه‌ی عکس (<span id="libn">؟</span>)</summary>
+<label>نام عکس (انگلیسی، مثلاً burger؛ شماره خودکار اضافه می‌شود)<input id="ln" dir="ltr"></label>
+<label class="b" style="margin-top:8px">انتخاب عکس‌ها (چند عکس را می‌توانی با هم انتخاب کنی)<input id="lf" type="file" accept="image/*" multiple hidden></label>
+<span id="lsel" style="color:var(--mut);margin-inline:8px"></span>
+<button id="lup" class="p" style="margin-top:8px">آپلود به کتابخانه</button>
+<div id="gal"></div>
+</details>
+
+<section>
+<label>فایل صوتی (mp3)<input id="audio" type="file" accept=".mp3,audio/mpeg"></label>
+<label>متن پادکست (اختیاری، برای اصلاح املا)<textarea id="script" rows="4"></textarea></label>
+<label>نام خروجی (انگلیسی، مثلاً ep01)<input id="name" dir="ltr" placeholder="ep01"></label>
+<label>تعداد عکس<select id="den"><option value="5">کم (تقریباً هر ۵ صحنه یکی)</option><option value="3" selected>متوسط (هر ۳ صحنه یکی)</option><option value="2">زیاد (هر ۲ صحنه یکی)</option></select></label>
+<div class="bar"><button id="go" class="p">۱. آنالیز</button></div>
+</section>
+
+<div id="log" role="status"></div>
+
+<section id="ed" hidden>
+<div><span id="need"></span> <button id="copyall">کپی پرامپت عکس‌های جدید</button></div>
+<textarea id="pbox" rows="4" readonly hidden dir="ltr"></textarea>
+<div id="rows"></div>
+<div class="bar">
+<button id="add">+ صحنه</button>
+<button id="redo">پخش تنوع عکس‌ها</button>
+<button id="srt">دانلود SRT</button>
+<button id="send" class="p">۲. ارسال و رندر</button>
+</div>
+</section>
+<audio id="pl"></audio>
+<datalist id="dl"></datalist>
+
+<script>
+const $=s=>document.querySelector(s), G='https://api.groq.com/openai/v1';
+const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+const sl=v=>(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+const cl=(v,a,b)=>Math.max(a,Math.min(b,v|0));
+const S={seg:[],scenes:[],dur:0,file:null}, STY=['title','keyword','number','quote'];
+let LIB=new Set(), NEED=[], PF=0;
+['groq','gh','repo'].forEach(k=>{const e=$('#'+k);e.value=localStorage.getItem(k)||'';e.onchange=()=>{localStorage.setItem(k,e.value.trim());loadLib()}});
+const log=(m,err)=>{$('#log').textContent=m;$('#log').className=err?'err':''};
+const fmt=t=>{const p=(n,l=2)=>String(n).padStart(l,'0');return `${p(Math.floor(t/3600))}:${p(Math.floor(t%3600/60))}:${p(Math.floor(t%60))},${p(Math.floor((t%1)*1000),3)}`};
+async function copy(t,msg){
+  const b=$('#pbox'); b.hidden=false; b.value=t;
+  try{await navigator.clipboard.writeText(t)}catch(e){b.select();try{document.execCommand('copy')}catch(_){}}
+  log(msg);
+}
+window.onerror=m=>log('خطای برنامه: '+m,1);
+window.onunhandledrejection=e=>log('خطا: '+(e.reason&&e.reason.message||e.reason),1);
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const prm=s=>`${baseOf(s).replace(/-/g,' ')}${num(s)>1?` (variation ${num(s)}: different angle and composition)`:''}, hand-drawn comic ink illustration, bold black outline, vivid saturated colors, single object centered, isolated on a flat solid magenta background (#DD0F7A), no shadow, no text, vertical 9:16`;
+const GH=()=>({Authorization:'Bearer '+$('#gh').value.trim(),Accept:'application/vnd.github+json'});
+
+async function loadLib(){
+  const repo=$('#repo').value.trim(); if(!repo||!$('#gh').value.trim()) return;
+  try{
+    const r=await fetch(`https://api.github.com/repos/${repo}/contents/public/library`,{headers:GH()});
+    LIB=new Set(r.ok?(await r.json()).filter(f=>f.name.endsWith('.png')).map(f=>f.name.slice(0,-4)):[]);
+    $('#libn').textContent=LIB.size+' عکس';
+    $('#dl').innerHTML=[...LIB].map(x=>`<option value="${x}">`).join('');
+    if(!$('#ed').hidden) draw();
+  }catch(e){}
+}
+loadLib();
+
+async function chat(key,body){
+  for(let t=0;t<5;t++){
+    const r=await fetch(G+'/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(r.status==429){const w=+r.headers.get('retry-after')||25;log(`محدودیت Groq؛ ${w} ثانیه صبر…`);await wait(w*1000+500);continue}
+    const d=await r.json(); if(!r.ok) throw new Error(d.error?.message||r.status);
+    return d.choices[0].message.content;
+  }
+  throw new Error('محدودیت Groq؛ چند دقیقه بعد دوباره امتحان کن');
+}
+
+function chunks(words){
+  const out=[]; let cur=[];
+  const flush=()=>{if(cur.length){out.push({start:+cur[0].start.toFixed(2),end:+cur.at(-1).end.toFixed(2),text:cur.map(w=>w.word.trim()).join(' ')});cur=[]}};
+  words.forEach((w,i)=>{
+    cur.push(w);
+    const nx=words[i+1], gap=nx?nx.start-w.end:9, pu=/[.!?؟،,؛:…]$/.test(w.word.trim());
+    if(cur.length>=7||(cur.length>=3&&(gap>.4||pu))) flush();
+  });
+  flush(); return out;
+}
+
+const SYS=first=>`You edit Persian kinetic-typography videos for Instagram Reels. Input: numbered short speech segments. Create MANY short scenes covering about 75% of the speech (skip only filler and repetition). Each scene = 1-2 consecutive segments (from/to, inclusive). text = Persian on-screen text, max 8 words, condensed from the speech (fix spelling using the reference script if given), with 1-2 key words wrapped in *asterisks*. style: ${first?'title (first scene only) | ':''}keyword | number (a figure is the point) | quote. Scenes in order, no overlap. Reply with JSON only: {"scenes":[{"from":0,"to":1,"text":"...","style":"keyword"}]}`;
+
+$('#go').onclick=async()=>{
+  const f=$('#audio').files[0], key=$('#groq').value.trim();
+  if(!f||!key){ if(!key) $('#cfg').open=true; return log(!f?'اول فایل صوتی را انتخاب کن.':'کلید Groq را در «تنظیمات» وارد کن.',1) }
+  log('شروع آنالیز…');
+  S.file=f; $('#pl').src=URL.createObjectURL(f);
+  if(!$('#name').value) $('#name').value='ep'+Date.now().toString().slice(-6);
+  try{
+    await loadLib();
+    log('در حال تبدیل صدا به متن…');
+    const fd=new FormData();
+    fd.append('file',f);fd.append('model','whisper-large-v3');fd.append('language','fa');
+    fd.append('response_format','verbose_json');fd.append('timestamp_granularities[]','word');fd.append('timestamp_granularities[]','segment');
+    const r=await fetch(G+'/audio/transcriptions',{method:'POST',headers:{Authorization:'Bearer '+key},body:fd});
+    const d=await r.json(); if(!r.ok) throw new Error(d.error?.message||r.status);
+    S.seg=d.words?.length?chunks(d.words):d.segments.map(s=>({start:+s.start.toFixed(2),end:+s.end.toFixed(2),text:s.text.trim()}));
+    S.dur=+(d.duration||S.seg.at(-1).end).toFixed(2);
+
+    const sc=$('#script').value.trim(), B=60, all=[]; let fails=0;
+    for(let lo=0;lo<S.seg.length;lo+=B){
+      const hi=Math.min(S.seg.length,lo+B)-1;
+      log(`انتخاب صحنه‌ها… (${hi+1} از ${S.seg.length})`);
+      const user=S.seg.slice(lo,hi+1).map((s,j)=>(lo+j)+': '+s.text).join('\n')+(sc?'\n\nReference script:\n'+sc:'');
+      let js;
+      for(let t=0;t<2&&!js;t++){
+        const txt=await chat(key,{model:'openai/gpt-oss-120b',temperature:.3,reasoning_effort:'low',messages:[{role:'system',content:SYS(lo===0)},{role:'user',content:user}]});
+        try{js=JSON.parse(txt.match(/\{[\s\S]*\}/)[0])}catch(e){log('پاسخ نامعتبر بود؛ تلاش دوباره…')}
+      }
+      if(!js){fails++;continue}
+      for(const c of js.scenes||[]){
+        const a=cl(c.from,lo,hi), b=cl(c.to,a,hi);
+        all.push({start:S.seg[a].start,end:S.seg[b].end,text:c.text||'',style:STY.includes(c.style)?c.style:'keyword',image:'',more:[],base:'',sug:'',fa:''});
+      }
+    }
+    all.sort((a,b)=>a.start-b.start);
+    for(let i=1;i<all.length;i++) if(all[i-1].end>all[i].start) all[i-1].end=all[i].start;
+    S.scenes=all.filter(s=>s.end-s.start>.3);
+    log('انتخاب عکس‌ها…'); PF=0; await pickImages(key); assign(); fails+=PF;
+    draw(); $('#ed').hidden=false;
+    log(`${S.scenes.length} صحنه، ${S.scenes.filter(s=>s.image).length} عکس.`+(fails?` ⚠ ${fails} بلوک از گفتار پردازش نشد؛ دوباره آنالیز کن.`:'')+' ویرایش کن، عکس‌های جدید را بساز، بعد ارسال.',fails);
+  }catch(e){log('خطا: '+e.message,1)}
+};
+
+const baseOf=x=>(x||'').replace(/-\d+$/,'');
+const num=x=>{const m=/-(\d+)$/.exec(x);return m?+m[1]:0};
+const norm=x=>/-\d+$/.test(x)?x:x+'-1';
+const nextName=b=>{b=baseOf(b);return b+'-'+(Math.max(0,...[...LIB].filter(x=>baseOf(x)===b).map(num))+1)};
+async function askJSON(key,sys,user){
+  for(let t=0;t<2;t++){
+    const txt=await chat(key,{model:'openai/gpt-oss-120b',temperature:.3,reasoning_effort:'low',messages:[{role:'system',content:sys},{role:'user',content:user}]});
+    try{return JSON.parse(txt.match(/\{[\s\S]*\}/)[0])}catch(e){log('پاسخ نامعتبر بود؛ تلاش دوباره…')}
+  }
+  return null;
+}
+async function pickImages(key){
+  const bases=[...new Set([...LIB].map(baseOf))];
+  const sys=`You pick illustration subjects for the scenes of a Persian typography video. Input: numbered scenes. For EVERY listed scene give one subject that best shows its meaning visually: a concrete object, animal, food or place, or a simple symbolic object for an abstract idea (e.g. "brain", "clock", "money-bag", "crown", "battery", "heart"). Prefer an existing base if it fits, otherwise use a NEW short English base (lowercase, hyphens, ONE single object, no numbers). Reuse the same base when a topic repeats. fa = Persian name of the subject (1-2 words). Reply with JSON only, one entry per listed scene: {"images":[{"i":0,"base":"battery","fa":"باتری"}]}`;
+  const run=async idx=>{
+    for(let o=0;o<idx.length;o+=70){
+      const part=idx.slice(o,o+70);
+      const user=`Existing image bases: ${bases.join(', ')||'none'}\n\n`+part.map(i=>i+': '+S.scenes[i].text.replace(/\*/g,'')).join('\n');
+      const js=await askJSON(key,sys,user);
+      if(!js){PF++;continue}
+      for(const c of js.images||[]){
+        const sc=S.scenes[c.i|0], b=baseOf(sl(c.base));
+        if(sc&&b){sc.sug=b;sc.fa=c.fa||''}
+      }
+    }
+  };
+  await run(S.scenes.map((_,i)=>i));
+  const miss=S.scenes.map((x,i)=>x.sug?-1:i).filter(i=>i>=0);
+  if(miss.length) await run(miss);
+  const den=+$('#den').value; let last=-99;
+  S.scenes.forEach((sc,i)=>{sc.base='';if(sc.sug&&i-last>=den){sc.base=sc.sug;last=i}});
+}
+// کم‌استفاده‌ترین نسخه‌ی موجود، یا نسخه‌ی ۱ اگر هنوز نیست
+function pick(base){
+  const vs=[...LIB].filter(x=>baseOf(x)===base).sort((a,b)=>num(a)-num(b));
+  if(!vs.length) return base+'-1';
+  const cnt=v=>S.scenes.filter(x=>x.image===v).length;
+  return vs.reduce((m,v)=>cnt(v)<cnt(m)?v:m,vs[0]);
+}
+// نسخه‌ی عکس را برای هر صحنه از بین نسخه‌های موجود به‌نوبت انتخاب می‌کند
+function assign(){
+  const use={};
+  S.scenes.forEach(sc=>{
+    if(sc.manual) return;
+    if(!sc.base){sc.image='';return}
+    const vs=[...LIB].filter(x=>baseOf(x)===sc.base).sort((a,b)=>num(a)-num(b));
+    if(!vs.length){sc.image=sc.base+'-1';return}
+    const n=use[sc.base]=(use[sc.base]||0)+1;
+    sc.image=vs[(n-1)%vs.length];
+  });
+}
+const imgs=s=>[s.image,...(s.more||[])].filter(Boolean);
+function setb(el,slug,fa){
+  if(!el) return;
+  el.textContent=!slug?'':LIB.has(slug)?'✓ موجود':'✗ بساز'+(fa?': '+fa:'');
+  el.className=LIB.has(slug)?'ok':'no';
+}
+function hd(i){const s=S.scenes[i],e=$('#h'+i);if(e)e.textContent=`از ${s.start} تا ${s.end} · ${Math.max(0,s.end-s.start).toFixed(1)} ثانیه`}
+function bd(i){const s=S.scenes[i];setb($('#b'+i),s.image,s.fa);(s.more||[]).forEach((m,k)=>setb($('#m'+i+'_'+k),m,''))}
+function sum(){
+  NEED=[...new Set(S.scenes.flatMap(imgs).filter(x=>!LIB.has(x)))];
+  $('#need').textContent=`${S.scenes.length} صحنه · ${S.scenes.filter(s=>imgs(s).length).length} با عکس · `+(NEED.length?`${NEED.length} عکس جدید لازم است`:'همه‌ی عکس‌ها موجودند');
+}
+function draw(){
+  $('#rows').innerHTML=S.scenes.map((s,i)=>`<div class="row"><div class="hd"><span>صحنه ${i+1}</span><small id="h${i}"></small></div><div class="t">
+    <button data-p="${i}" aria-label="پخش">▶</button>
+    <input type="number" step=".1" value="${s.start}" data-i="${i}" data-k="start" aria-label="شروع">
+    <input type="number" step=".1" value="${s.end}" data-i="${i}" data-k="end" aria-label="پایان">
+    <select data-i="${i}" data-k="style">${STY.map(o=>`<option ${o==s.style?'selected':''}>${o}</option>`).join('')}</select>
+    <button data-d="${i}" aria-label="حذف">✕</button></div>
+    <textarea rows="2" data-i="${i}" data-k="text">${esc(s.text)}</textarea>
+    <div class="im"><span class="n">۱</span><input dir="ltr" list="dl" placeholder="image-name" value="${esc(s.image)}" data-i="${i}" data-k="image">
+    <span id="b${i}"></span>${!s.image&&s.sug?`<span class="sg">پیشنهاد: ${esc(s.fa)} (${esc(s.sug)})</span>`:''}
+    <button data-c="${i}">پرامپت</button>
+    <label class="b">آپلود<input type="file" accept="image/*" hidden data-u="${i}"></label></div>
+    ${(s.more||[]).map((m,k)=>`<div class="im"><span class="n">${k+2}</span><input dir="ltr" list="dl" placeholder="image-name" value="${esc(m)}" data-i="${i}" data-m="${k}">
+    <span id="m${i}_${k}"></span>
+    <button data-c2="${i}_${k}">پرامپت</button>
+    <label class="b">آپلود<input type="file" accept="image/*" hidden data-u2="${i}_${k}"></label>
+    <button data-up="${i}_${k}" aria-label="جابه‌جایی به عکس قبلی">↑</button>
+    <button data-rm="${i}_${k}" aria-label="حذف عکس">✕</button></div>`).join('')}
+    <div class="im"><button data-am="${i}">+ عکس دیگر برای این صحنه</button></div></div>`).join('');
+  S.scenes.forEach((_,i)=>{bd(i);hd(i)}); sum();
+}
+$('#rows').addEventListener('input',e=>{
+  const {i,k,m}=e.target.dataset; if(i==null) return;
+  const v=e.target.value;
+  if(m!=null){S.scenes[i].more[m]=sl(v);bd(i);sum();return}
+  S.scenes[i][k]=(k=='start'||k=='end')?+v:k=='image'?sl(v):v;
+  if(k=='start'||k=='end') hd(i);
+  if(k=='image'){S.scenes[i].base=baseOf(S.scenes[i].image);S.scenes[i].manual=true;bd(i);sum()}
+});
+let stopAt=0; const pl=$('#pl');
+pl.ontimeupdate=()=>{if(stopAt&&pl.currentTime>=stopAt){pl.pause();stopAt=0}};
+$('#rows').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  const D=b.dataset, pr=(sl,t)=>{if(!sl) return log('اول نام عکس را بنویس.',1);copy(prm(sl),'پرامپت کپی شد: '+sl)};
+  if(D.p!=null){const s=S.scenes[D.p];pl.currentTime=s.start;stopAt=s.end;pl.play()}
+  if(D.d!=null){S.scenes.splice(D.d,1);draw()}
+  if(D.c!=null){const sc=S.scenes[D.c];if(!sc.image&&sc.sug){sc.base=sc.sug;sc.image=pick(sc.base);sc.manual=true;draw()}if(!sc.image) return log('برای این صحنه پیشنهادی نیست؛ نام عکس را بنویس (مثلاً burger-1).',1);pr(sc.image)}
+  if(D.am!=null){S.scenes[D.am].more.push('');draw()}
+  if(D.c2!=null){const [i,k]=D.c2.split('_');pr(S.scenes[i].more[k])}
+  if(D.rm!=null){const [i,k]=D.rm.split('_');S.scenes[i].more.splice(k,1);draw()}
+  if(D.up!=null){
+    const [i,k]=D.up.split('_'), sc=S.scenes[i], a=[sc.image,...sc.more], j=+k+1;
+    [a[j-1],a[j]]=[a[j],a[j-1]]; sc.image=a[0]; sc.more=a.slice(1); sc.base=baseOf(sc.image); sc.manual=true; draw();
+  }
+});
+$('#rows').addEventListener('change',e=>{
+  const D=e.target.dataset, f=e.target.files&&e.target.files[0]; if(!f) return;
+  if(D.u!=null){
+    let s=S.scenes[D.u].image; if(!s) return log('اول نام عکس را بنویس.',1);
+    s=norm(s); S.scenes[D.u].image=s; S.scenes[D.u].manual=true; addImage(s,f);
+  }
+  if(D.u2!=null){
+    const [i,k]=D.u2.split('_'); let s=S.scenes[i].more[k]; if(!s) return log('اول نام عکس را بنویس.',1);
+    s=norm(s); S.scenes[i].more[k]=s; addImage(s,f);
+  }
+});
+$('#lf').onchange=e=>{$('#lsel').textContent=e.target.files.length+' عکس انتخاب شد'};
+$('#lup').onclick=async()=>{
+  const inp=$('#lf'), fs=[...inp.files], b=sl($('#ln').value);
+  if(!b) return log('نام انگلیسی عکس را بنویس.',1);
+  if(!fs.length) return log('اول عکس‌ها را انتخاب کن.',1);
+  let ok=0;
+  for(let i=0;i<fs.length;i++){ log(`عکس ${i+1} از ${fs.length}…`); if(await addImage(nextName(b),fs[i])) ok++; }
+  inp.value=''; $('#lsel').textContent='';
+  log(`${ok} از ${fs.length} عکس ذخیره شد.`,ok<fs.length);
+};
+$('#copyall').onclick=()=>{if(NEED.length){copy(NEED.map(prm).join('\n\n'),'پرامپت '+NEED.length+' عکس کپی شد.')}};
+$('#redo').onclick=()=>{assign();draw();log('تنوع عکس‌ها دوباره پخش شد.')};
+$('#add').onclick=()=>{const e=S.scenes.at(-1)?.end||0;S.scenes.push({start:e,end:+(e+3).toFixed(1),text:'',style:'keyword',image:'',more:[],base:'',sug:'',fa:''});draw()};
+$('#srt').onclick=()=>{
+  const t=S.seg.map((s,i)=>`${i+1}\n${fmt(s.start)} --> ${fmt(s.end)}\n${s.text}\n`).join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/plain'}));a.download=($('#name').value||'podcast')+'.srt';a.click();
+};
+
+// عکس با پس‌زمینه‌ی یک‌رنگ -> برش + حاشیه‌ی سفید (استیکر)
+async function sticker(file){
+  const img=await createImageBitmap(file);
+  const k=Math.min(1,760/Math.max(img.width,img.height)), w=Math.round(img.width*k), h=Math.round(img.height*k);
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const x=c.getContext('2d',{willReadFrequently:true}); x.drawImage(img,0,0,w,h);
+  const id=x.getImageData(0,0,w,h), d=id.data;
+  let r=0,g=0,b=0,n=0; const add=(px,py)=>{const i=(py*w+px)*4;r+=d[i];g+=d[i+1];b+=d[i+2];n++};
+  for(let i=0;i<w;i++){add(i,0);add(i,h-1)} for(let j=0;j<h;j++){add(0,j);add(w-1,j)}
+  r/=n;g/=n;b/=n;
+  const near=p=>{const i=p*4,dr=d[i]-r,dg=d[i+1]-g,db=d[i+2]-b;return dr*dr+dg*dg+db*db<5000};
+  const bg=new Uint8Array(w*h), st=[];
+  const push=p=>{if(!bg[p]&&near(p)){bg[p]=1;st.push(p)}};
+  for(let i=0;i<w;i++){push(i);push((h-1)*w+i)} for(let j=0;j<h;j++){push(j*w);push(j*w+w-1)}
+  while(st.length){const p=st.pop(),px=p%w,py=(p/w)|0;if(px>0)push(p-1);if(px<w-1)push(p+1);if(py>0)push(p-w);if(py<h-1)push(p+w)}
+  const m=Uint8Array.from(bg,v=>1-v);
+  for(let t=0;t<2;t++){const o=m.slice();for(let y=1;y<h-1;y++)for(let xx=1;xx<w-1;xx++){const p=y*w+xx;if(o[p]&&!(o[p-1]&&o[p+1]&&o[p-w]&&o[p+w]))m[p]=0}}
+  let x0=w,y0=h,x1=0,y1=0;
+  for(let p=0;p<w*h;p++){d[p*4+3]=m[p]?255:0;if(m[p]){const px=p%w,py=(p/w)|0;if(px<x0)x0=px;if(px>x1)x1=px;if(py<y0)y0=py;if(py>y1)y1=py}}
+  if(x1<=x0) throw new Error('شیء پیدا نشد؛ پس‌زمینه باید یک‌رنگ باشد.');
+  x.putImageData(id,0,0);
+  const bw=x1-x0+1, bh=y1-y0+1, R=Math.round(Math.max(bw,bh)*.03), pad=R*2+8;
+  const cut=document.createElement('canvas'); cut.width=bw; cut.height=bh;
+  cut.getContext('2d').drawImage(c,x0,y0,bw,bh,0,0,bw,bh);
+  const wt=document.createElement('canvas'); wt.width=bw; wt.height=bh;
+  const wx=wt.getContext('2d'); wx.drawImage(cut,0,0); wx.globalCompositeOperation='source-in'; wx.fillStyle='#fff'; wx.fillRect(0,0,bw,bh);
+  const o=document.createElement('canvas'); o.width=bw+pad*2; o.height=bh+pad*2;
+  const ox=o.getContext('2d');
+  ox.shadowColor='rgba(0,0,0,.35)'; ox.shadowBlur=R*.8; ox.shadowOffsetY=R*.3;
+  for(const rr of [R,R*.5]) for(let a=0;a<24;a++){const t=a/24*Math.PI*2; ox.drawImage(wt,pad+Math.cos(t)*rr,pad+Math.sin(t)*rr)}
+  ox.shadowColor='transparent'; ox.drawImage(cut,pad,pad);
+  return o.toDataURL('image/png');
+}
+async function put(path,content){
+  const repo=$('#repo').value.trim(), H=GH();
+  const g=await fetch(`https://api.github.com/repos/${repo}/contents/${path}`,{headers:H});
+  const sha=g.ok?(await g.json()).sha:undefined;
+  const r=await fetch(`https://api.github.com/repos/${repo}/contents/${path}`,{method:'PUT',headers:H,body:JSON.stringify({message:'add '+path,content,sha})});
+  if(!r.ok) throw new Error((await r.json()).message);
+}
+async function addImage(slug,file){
+  if(!$('#repo').value.trim()||!$('#gh').value.trim()){ $('#cfg').open=true; return log('ریپو و GitHub Token را در تنظیمات وارد کن.',1) }
+  try{
+    log('در حال برش عکس…');
+    const url=await sticker(file);
+    const im=new Image(); im.src=url; $('#gal').prepend(im);
+    log('ذخیره در کتابخانه…');
+    await put(`public/library/${slug}.png`,url.split(',')[1]);
+    LIB.add(slug); $('#libn').textContent=LIB.size+' عکس';
+    if(!$('#ed').hidden) draw();
+    log('عکس '+slug+' ذخیره شد.');
+    return true;
+  }catch(e){log('خطا: '+e.message,1);return false}
+}
+
+const b64=async f=>new Promise(r=>{const x=new FileReader();x.onload=()=>r(x.result.split(',')[1]);x.readAsDataURL(f)});
+$('#send').onclick=async()=>{
+  const name=$('#name').value.trim().toLowerCase().replace(/[^a-z0-9-]/g,'')||('ep'+Date.now()), repo=$('#repo').value.trim();
+  if(!repo||!$('#gh').value.trim()) return log('ریپو و GitHub Token را در تنظیمات وارد کن.',1);
+  await loadLib();
+  let miss=0;
+  const scenes=S.scenes.filter(s=>s.text.trim()&&s.end>s.start).sort((a,b)=>a.start-b.start)
+    .map(s=>{const all=imgs(s), ok=all.filter(x=>LIB.has(x));miss+=all.length-ok.length;return {start:s.start,end:s.end,text:s.text,style:s.style,images:ok}});
+  try{
+    log('ارسال فایل صوتی…'); await put(`inputs/${name}.mp3`,await b64(S.file));
+    log('ارسال صحنه‌ها…');
+    await put(`inputs/${name}.json`,btoa(unescape(encodeURIComponent(JSON.stringify({duration:S.dur,scenes},null,1)))));
+    log('شروع رندر…');
+    const r=await fetch(`https://api.github.com/repos/${repo}/actions/workflows/render.yml/dispatches`,{method:'POST',headers:GH(),body:JSON.stringify({ref:'main',inputs:{name}})});
+    if(!r.ok) throw new Error((await r.json()).message);
+    $('#log').innerHTML=`رندر شروع شد${miss?` (${miss} صحنه بدون عکس، چون عکسش هنوز ساخته نشده)`:''}. نتیجه (MP4) در Artifacts این صفحه است:<br><a style="color:#facc15" target="_blank" href="https://github.com/${repo}/actions">github.com/${esc(repo)}/actions</a>`;
+  }catch(e){log('خطا: '+e.message,1)}
+};
+</script>
+</body>
+</html>
