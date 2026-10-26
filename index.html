@@ -45,6 +45,7 @@ textarea{direction:rtl}
 <label>فایل صوتی (mp3)<input id="audio" type="file" accept=".mp3,audio/mpeg"></label>
 <label>متن پادکست (اختیاری، برای اصلاح املا)<textarea id="script" rows="4"></textarea></label>
 <label>نام خروجی (انگلیسی، مثلاً ep01)<input id="name" dir="ltr" placeholder="ep01"></label>
+<label>تعداد عکس<select id="den"><option value="5">کم (تقریباً هر ۵ صحنه یکی)</option><option value="3" selected>متوسط (هر ۳ صحنه یکی)</option><option value="2">زیاد (هر ۲ صحنه یکی)</option></select></label>
 <div class="bar"><button id="go" class="p">۱. آنالیز</button></div>
 </section>
 
@@ -109,7 +110,7 @@ function chunks(words){
   flush(); return out;
 }
 
-const SYS=first=>`You edit Persian kinetic-typography videos for Instagram Reels. Input: numbered short speech segments. Create MANY short scenes covering about 75% of the speech (skip only filler and repetition). Each scene = 1-2 consecutive segments (from/to, inclusive). text = Persian on-screen text, max 8 words, condensed from the speech (fix spelling using the reference script if given), with 1-2 key words wrapped in *asterisks*. style: ${first?'title (first scene only) | ':''}keyword | number (a figure is the point) | quote. image: only when a concrete drawable object, animal, food or place is spoken about (roughly 1 in 3 scenes, otherwise ""): prefer one of the existing slugs if it fits, otherwise a NEW short English slug (lowercase, hyphens, one single object, e.g. "coffee-cup"). fa: Persian name of that object (1-2 words). Scenes in order, no overlap. Reply with JSON only: {"scenes":[{"from":0,"to":1,"text":"...","style":"keyword","image":"","fa":""}]}`;
+const SYS=(first,den)=>`You edit Persian kinetic-typography videos for Instagram Reels. Input: numbered short speech segments. Create MANY short scenes covering about 75% of the speech (skip only filler and repetition). Each scene = 1-2 consecutive segments (from/to, inclusive). text = Persian on-screen text, max 8 words, condensed from the speech (fix spelling using the reference script if given), with 1-2 key words wrapped in *asterisks*. style: ${first?'title (first scene only) | ':''}keyword | number (a figure is the point) | quote. image: give an image slug to about 1 in ${den} scenes (always when something drawable is named), otherwise "". The image is a concrete object, animal, food or place, or a simple symbolic object for an abstract idea (e.g. "brain", "clock", "money-bag", "crown"). Prefer an existing slug if it fits; otherwise use a NEW short English slug (lowercase, hyphens, ONE single object, e.g. "coffee-cup"). Reuse the same slug when a topic repeats. fa: Persian name of that object (1-2 words). Scenes in order, no overlap. Reply with JSON only: {"scenes":[{"from":0,"to":1,"text":"...","style":"keyword","image":"","fa":""}]}`;
 
 $('#go').onclick=async()=>{
   const f=$('#audio').files[0], key=$('#groq').value.trim();
@@ -127,13 +128,17 @@ $('#go').onclick=async()=>{
     S.seg=d.words?.length?chunks(d.words):d.segments.map(s=>({start:+s.start.toFixed(2),end:+s.end.toFixed(2),text:s.text.trim()}));
     S.dur=+(d.duration||S.seg.at(-1).end).toFixed(2);
 
-    const sc=$('#script').value.trim(), B=60, all=[];
+    const sc=$('#script').value.trim(), B=60, all=[]; let fails=0;
     for(let lo=0;lo<S.seg.length;lo+=B){
       const hi=Math.min(S.seg.length,lo+B)-1;
       log(`انتخاب صحنه‌ها… (${hi+1} از ${S.seg.length})`);
       const user=`Existing image slugs: ${[...LIB].join(', ')||'none'}\n\n`+S.seg.slice(lo,hi+1).map((s,j)=>(lo+j)+': '+s.text).join('\n')+(sc?'\n\nReference script:\n'+sc:'');
-      const txt=await chat(key,{model:'openai/gpt-oss-120b',temperature:.3,reasoning_effort:'low',messages:[{role:'system',content:SYS(lo===0)},{role:'user',content:user}]});
-      let js; try{js=JSON.parse(txt.match(/\{[\s\S]*\}/)[0])}catch(e){continue}
+      let js;
+      for(let t=0;t<2&&!js;t++){
+        const txt=await chat(key,{model:'openai/gpt-oss-120b',temperature:.3,reasoning_effort:'low',messages:[{role:'system',content:SYS(lo===0,$('#den').value)},{role:'user',content:user}]});
+        try{js=JSON.parse(txt.match(/\{[\s\S]*\}/)[0])}catch(e){log('پاسخ نامعتبر بود؛ تلاش دوباره…')}
+      }
+      if(!js){fails++;continue}
       for(const c of js.scenes||[]){
         const a=cl(c.from,lo,hi), b=cl(c.to,a,hi);
         all.push({start:S.seg[a].start,end:S.seg[b].end,text:c.text||'',style:STY.includes(c.style)?c.style:'keyword',image:sl(c.image),fa:c.fa||''});
@@ -143,7 +148,7 @@ $('#go').onclick=async()=>{
     for(let i=1;i<all.length;i++) if(all[i-1].end>all[i].start) all[i-1].end=all[i].start;
     S.scenes=all.filter(s=>s.end-s.start>.3);
     draw(); $('#ed').hidden=false;
-    log(`${S.scenes.length} صحنه آماده است. ویرایش کن، عکس‌های جدید را بساز، بعد ارسال.`);
+    log(`${S.scenes.length} صحنه، ${S.scenes.filter(s=>s.image).length} عکس.`+(fails?` ⚠ ${fails} بلوک از گفتار پردازش نشد؛ دوباره آنالیز کن.`:'')+' ویرایش کن، عکس‌های جدید را بساز، بعد ارسال.',fails);
   }catch(e){log('خطا: '+e.message,1)}
 };
 
