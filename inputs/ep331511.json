@@ -1,0 +1,100 @@
+{
+ "duration": 64.04,
+ "scenes": [
+  {
+   "start": 0,
+   "end": 5.02,
+   "text": "صبح اصلا بدون *قهوه* نمیشه",
+   "style": "title",
+   "images": [
+    "coffee-cup"
+   ]
+  },
+  {
+   "start": 5.02,
+   "end": 9.02,
+   "text": "قهوه = باتری اضافه برای *انرژی*",
+   "style": "keyword",
+   "images": [
+    "battery",
+    "coffee-cup"
+   ]
+  },
+  {
+   "start": 9.02,
+   "end": 13.74,
+   "text": "*کافئین* دیگه چیه؟",
+   "style": "keyword",
+   "images": [
+    "coffein"
+   ]
+  },
+  {
+   "start": 13.74,
+   "end": 22.36,
+   "text": "کافین *انرژی* نمی‌دهد، فقط فکت عجیب",
+   "style": "keyword",
+   "images": [
+    "fact-1"
+   ]
+  },
+  {
+   "start": 22.36,
+   "end": 28.34,
+   "text": "قهوه بزرگ‌ترین *کلاه‌بردار* سیستم عصبی",
+   "style": "keyword",
+   "images": [
+    "coffein",
+    "energie-1"
+   ]
+  },
+  {
+   "start": 28.34,
+   "end": 34.56,
+   "text": "حس خوب بعد قهوه، اما خواب می‌پرند",
+   "style": "keyword",
+   "images": [
+    "coffee-cup",
+    "awake-1"
+   ]
+  },
+  {
+   "start": 34.56,
+   "end": 42.16,
+   "text": "قهوه *شارژ* نمیکنه",
+   "style": "keyword",
+   "images": [
+    "battery",
+    "brain-2"
+   ]
+  },
+  {
+   "start": 42.16,
+   "end": 46.78,
+   "text": "از بیدار شدن تا آدنوزین *ترش* می‌شود",
+   "style": "keyword",
+   "images": [
+    "adenozin-1"
+   ]
+  },
+  {
+   "start": 46.78,
+   "end": 57.16,
+   "text": "آدنوزین جمع می‌شود، گیرنده‌ها *خستگی* می‌گویند",
+   "style": "keyword",
+   "images": [
+    "brain-1"
+   ]
+  },
+  {
+   "start": 57.16,
+   "end": 64.26,
+   "text": "آدنوزین باعث *چشم‌های* سنگین شبانه می‌شود",
+   "style": "keyword",
+   "images": [
+    "eye-1",
+    "adenozin-1"
+   ]
+  }
+ ]
+}
