@@ -36,7 +36,7 @@ textarea{direction:rtl}
 </details>
 
 <details><summary>کتابخانه‌ی عکس (<span id="libn">؟</span>)</summary>
-<label>نام عکس (انگلیسی، مثلاً burger)<input id="ln" dir="ltr"></label>
+<label>نام عکس (انگلیسی، مثلاً burger؛ شماره خودکار اضافه می‌شود)<input id="ln" dir="ltr"></label>
 <label class="b" style="margin-top:8px">انتخاب عکس با پس‌زمینه‌ی یک‌رنگ<input id="lf" type="file" accept="image/*" hidden></label>
 <div id="gal"></div>
 </details>
@@ -56,6 +56,7 @@ textarea{direction:rtl}
 <div id="rows"></div>
 <div class="bar">
 <button id="add">+ صحنه</button>
+<button id="redo">پخش تنوع عکس‌ها</button>
 <button id="srt">دانلود SRT</button>
 <button id="send" class="p">۲. ارسال و رندر</button>
 </div>
@@ -69,12 +70,12 @@ const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'
 const sl=v=>(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
 const cl=(v,a,b)=>Math.max(a,Math.min(b,v|0));
 const S={seg:[],scenes:[],dur:0,file:null}, STY=['title','keyword','number','quote'];
-let LIB=new Set(), NEED=[];
+let LIB=new Set(), NEED=[], PF=0;
 ['groq','gh','repo'].forEach(k=>{const e=$('#'+k);e.value=localStorage.getItem(k)||'';e.onchange=()=>{localStorage.setItem(k,e.value.trim());loadLib()}});
 const log=(m,err)=>{$('#log').textContent=m;$('#log').className=err?'err':''};
 const fmt=t=>{const p=(n,l=2)=>String(n).padStart(l,'0');return `${p(Math.floor(t/3600))}:${p(Math.floor(t%3600/60))}:${p(Math.floor(t%60))},${p(Math.floor((t%1)*1000),3)}`};
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
-const prm=s=>`${s.replace(/-/g,' ')}, hand-drawn comic ink illustration, bold black outline, vivid saturated colors, single object centered, isolated on a flat solid magenta background (#DD0F7A), no shadow, no text, vertical 9:16`;
+const prm=s=>`${baseOf(s).replace(/-/g,' ')}${num(s)>1?` (variation ${num(s)}: different angle and composition)`:''}, hand-drawn comic ink illustration, bold black outline, vivid saturated colors, single object centered, isolated on a flat solid magenta background (#DD0F7A), no shadow, no text, vertical 9:16`;
 const GH=()=>({Authorization:'Bearer '+$('#gh').value.trim(),Accept:'application/vnd.github+json'});
 
 async function loadLib(){
@@ -110,7 +111,7 @@ function chunks(words){
   flush(); return out;
 }
 
-const SYS=(first,den)=>`You edit Persian kinetic-typography videos for Instagram Reels. Input: numbered short speech segments. Create MANY short scenes covering about 75% of the speech (skip only filler and repetition). Each scene = 1-2 consecutive segments (from/to, inclusive). text = Persian on-screen text, max 8 words, condensed from the speech (fix spelling using the reference script if given), with 1-2 key words wrapped in *asterisks*. style: ${first?'title (first scene only) | ':''}keyword | number (a figure is the point) | quote. image: give an image slug to about 1 in ${den} scenes (always when something drawable is named), otherwise "". The image is a concrete object, animal, food or place, or a simple symbolic object for an abstract idea (e.g. "brain", "clock", "money-bag", "crown"). Prefer an existing slug if it fits; otherwise use a NEW short English slug (lowercase, hyphens, ONE single object, e.g. "coffee-cup"). Reuse the same slug when a topic repeats. fa: Persian name of that object (1-2 words). Scenes in order, no overlap. Reply with JSON only: {"scenes":[{"from":0,"to":1,"text":"...","style":"keyword","image":"","fa":""}]}`;
+const SYS=first=>`You edit Persian kinetic-typography videos for Instagram Reels. Input: numbered short speech segments. Create MANY short scenes covering about 75% of the speech (skip only filler and repetition). Each scene = 1-2 consecutive segments (from/to, inclusive). text = Persian on-screen text, max 8 words, condensed from the speech (fix spelling using the reference script if given), with 1-2 key words wrapped in *asterisks*. style: ${first?'title (first scene only) | ':''}keyword | number (a figure is the point) | quote. Scenes in order, no overlap. Reply with JSON only: {"scenes":[{"from":0,"to":1,"text":"...","style":"keyword"}]}`;
 
 $('#go').onclick=async()=>{
   const f=$('#audio').files[0], key=$('#groq').value.trim();
@@ -132,26 +133,63 @@ $('#go').onclick=async()=>{
     for(let lo=0;lo<S.seg.length;lo+=B){
       const hi=Math.min(S.seg.length,lo+B)-1;
       log(`انتخاب صحنه‌ها… (${hi+1} از ${S.seg.length})`);
-      const user=`Existing image slugs: ${[...LIB].join(', ')||'none'}\n\n`+S.seg.slice(lo,hi+1).map((s,j)=>(lo+j)+': '+s.text).join('\n')+(sc?'\n\nReference script:\n'+sc:'');
+      const user=S.seg.slice(lo,hi+1).map((s,j)=>(lo+j)+': '+s.text).join('\n')+(sc?'\n\nReference script:\n'+sc:'');
       let js;
       for(let t=0;t<2&&!js;t++){
-        const txt=await chat(key,{model:'openai/gpt-oss-120b',temperature:.3,reasoning_effort:'low',messages:[{role:'system',content:SYS(lo===0,$('#den').value)},{role:'user',content:user}]});
+        const txt=await chat(key,{model:'openai/gpt-oss-120b',temperature:.3,reasoning_effort:'low',messages:[{role:'system',content:SYS(lo===0)},{role:'user',content:user}]});
         try{js=JSON.parse(txt.match(/\{[\s\S]*\}/)[0])}catch(e){log('پاسخ نامعتبر بود؛ تلاش دوباره…')}
       }
       if(!js){fails++;continue}
       for(const c of js.scenes||[]){
         const a=cl(c.from,lo,hi), b=cl(c.to,a,hi);
-        all.push({start:S.seg[a].start,end:S.seg[b].end,text:c.text||'',style:STY.includes(c.style)?c.style:'keyword',image:sl(c.image),fa:c.fa||''});
+        all.push({start:S.seg[a].start,end:S.seg[b].end,text:c.text||'',style:STY.includes(c.style)?c.style:'keyword',image:'',base:'',fa:''});
       }
     }
     all.sort((a,b)=>a.start-b.start);
     for(let i=1;i<all.length;i++) if(all[i-1].end>all[i].start) all[i-1].end=all[i].start;
     S.scenes=all.filter(s=>s.end-s.start>.3);
+    log('انتخاب عکس‌ها…'); PF=0; await pickImages(key); assign(); fails+=PF;
     draw(); $('#ed').hidden=false;
     log(`${S.scenes.length} صحنه، ${S.scenes.filter(s=>s.image).length} عکس.`+(fails?` ⚠ ${fails} بلوک از گفتار پردازش نشد؛ دوباره آنالیز کن.`:'')+' ویرایش کن، عکس‌های جدید را بساز، بعد ارسال.',fails);
   }catch(e){log('خطا: '+e.message,1)}
 };
 
+const baseOf=x=>(x||'').replace(/-\d+$/,'');
+const num=x=>{const m=/-(\d+)$/.exec(x);return m?+m[1]:0};
+const norm=x=>/-\d+$/.test(x)?x:x+'-1';
+const nextName=b=>{b=baseOf(b);return b+'-'+(Math.max(0,...[...LIB].filter(x=>baseOf(x)===b).map(num))+1)};
+async function askJSON(key,sys,user){
+  for(let t=0;t<2;t++){
+    const txt=await chat(key,{model:'openai/gpt-oss-120b',temperature:.3,reasoning_effort:'low',messages:[{role:'system',content:sys},{role:'user',content:user}]});
+    try{return JSON.parse(txt.match(/\{[\s\S]*\}/)[0])}catch(e){log('پاسخ نامعتبر بود؛ تلاش دوباره…')}
+  }
+  return null;
+}
+async function pickImages(key){
+  const den=$('#den').value, B=70, bases=[...new Set([...LIB].map(baseOf))];
+  const sys=`You pick illustration subjects for the scenes of a Persian typography video. Input: numbered scenes. Choose a subject for about 1 in ${den} scenes: always when a drawable thing is named, spread evenly, never leave long stretches without one. The subject is a concrete object, animal, food or place, or a simple symbolic object for an abstract idea (e.g. "brain", "clock", "money-bag", "crown", "battery"). Prefer an existing base if it fits, otherwise use a NEW short English base (lowercase, hyphens, ONE single object, no numbers). Reuse the same base when a topic repeats. fa = Persian name of the subject (1-2 words). Reply with JSON only: {"images":[{"i":0,"base":"battery","fa":"باتری"}]}`;
+  for(let lo=0;lo<S.scenes.length;lo+=B){
+    const user=`Existing image bases: ${bases.join(', ')||'none'}\n\n`+S.scenes.slice(lo,lo+B).map((s,j)=>(lo+j)+': '+s.text.replace(/\*/g,'')).join('\n');
+    const js=await askJSON(key,sys,user);
+    if(!js){PF++;continue}
+    for(const c of js.images||[]){
+      const sc=S.scenes[c.i|0], b=baseOf(sl(c.base));
+      if(sc&&b){sc.base=b;sc.fa=c.fa||''}
+    }
+  }
+}
+// نسخه‌ی عکس را برای هر صحنه از بین نسخه‌های موجود به‌نوبت انتخاب می‌کند
+function assign(){
+  const use={};
+  S.scenes.forEach(sc=>{
+    if(sc.manual) return;
+    if(!sc.base){sc.image='';return}
+    const vs=[...LIB].filter(x=>baseOf(x)===sc.base).sort((a,b)=>num(a)-num(b));
+    if(!vs.length){sc.image=sc.base+'-1';return}
+    const n=use[sc.base]=(use[sc.base]||0)+1;
+    sc.image=vs[(n-1)%vs.length];
+  });
+}
 function bd(i){
   const s=S.scenes[i], e=$('#b'+i); if(!e) return;
   e.textContent=!s.image?'':LIB.has(s.image)?'✓ موجود':'✗ بساز: '+(s.fa||s.image);
@@ -179,7 +217,7 @@ $('#rows').addEventListener('input',e=>{
   const {i,k}=e.target.dataset; if(i==null) return;
   const v=e.target.value;
   S.scenes[i][k]=(k=='start'||k=='end')?+v:k=='image'?sl(v):v;
-  if(k=='image'){bd(i);sum()}
+  if(k=='image'){S.scenes[i].base=baseOf(S.scenes[i].image);S.scenes[i].manual=true;bd(i);sum()}
 });
 let stopAt=0; const pl=$('#pl');
 pl.ontimeupdate=()=>{if(stopAt&&pl.currentTime>=stopAt){pl.pause();stopAt=0}};
@@ -187,16 +225,17 @@ $('#rows').addEventListener('click',e=>{
   const b=e.target.closest('button'); if(!b) return;
   if(b.dataset.p!=null){const s=S.scenes[b.dataset.p];pl.currentTime=s.start;stopAt=s.end;pl.play()}
   if(b.dataset.d!=null){S.scenes.splice(b.dataset.d,1);draw()}
-  if(b.dataset.c!=null){const s=S.scenes[b.dataset.c].image;if(s){navigator.clipboard.writeText(prm(s));log('پرامپت کپی شد: '+s)}}
+  if(b.dataset.c!=null){const s=S.scenes[b.dataset.c].image;if(!s) return log('این صحنه نام عکس ندارد؛ اول نام عکس را بنویس (مثلاً burger-1).',1);navigator.clipboard.writeText(prm(s));log('پرامپت کپی شد: '+s)}
 });
 $('#rows').addEventListener('change',e=>{
   const u=e.target.dataset.u; if(u==null||!e.target.files[0]) return;
-  const s=S.scenes[u].image; if(!s) return log('اول نام عکس را بنویس.',1);
-  addImage(s,e.target.files[0]);
+  let s=S.scenes[u].image; if(!s) return log('اول نام عکس را بنویس.',1);
+  s=norm(s); S.scenes[u].image=s; S.scenes[u].manual=true; addImage(s,e.target.files[0]);
 });
-$('#lf').onchange=e=>{const s=sl($('#ln').value); if(!s||!e.target.files[0]) return log('نام انگلیسی عکس را بنویس.',1); addImage(s,e.target.files[0])};
+$('#lf').onchange=e=>{const s=sl($('#ln').value); if(!s||!e.target.files[0]) return log('نام انگلیسی عکس را بنویس.',1); addImage(nextName(s),e.target.files[0])};
 $('#copyall').onclick=()=>{if(NEED.length){navigator.clipboard.writeText(NEED.map(prm).join('\n\n'));log('پرامپت '+NEED.length+' عکس کپی شد.')}};
-$('#add').onclick=()=>{const e=S.scenes.at(-1)?.end||0;S.scenes.push({start:e,end:+(e+3).toFixed(1),text:'',style:'keyword',image:'',fa:''});draw()};
+$('#redo').onclick=()=>{assign();draw();log('تنوع عکس‌ها دوباره پخش شد.')};
+$('#add').onclick=()=>{const e=S.scenes.at(-1)?.end||0;S.scenes.push({start:e,end:+(e+3).toFixed(1),text:'',style:'keyword',image:'',base:'',fa:''});draw()};
 $('#srt').onclick=()=>{
   const t=S.seg.map((s,i)=>`${i+1}\n${fmt(s.start)} --> ${fmt(s.end)}\n${s.text}\n`).join('\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/plain'}));a.download=($('#name').value||'podcast')+'.srt';a.click();
