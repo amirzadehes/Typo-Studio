@@ -20,7 +20,7 @@ jobs:
       - run: |
           mkdir -p public out
           cp "inputs/$NAME.mp3" public/audio.mp3
-          npx remotion render src/index.jsx Typo "out/$NAME.mp4" --props="inputs/$NAME.json" --concurrency=2
+           npx remotion render index.jsx Typo "out/$NAME.mp4" --props="inputs/$NAME.json" --concurrency=2
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.name }}
