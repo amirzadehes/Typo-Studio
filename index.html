@@ -12,14 +12,18 @@ h1{font-size:22px;margin:0 0 12px}
 section,details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
 label{display:block;color:var(--mut);font-size:14px;margin-top:8px}
 input,textarea,select{width:100%;background:var(--bg);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit}
-input:focus-visible,textarea:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
-button{background:var(--line);color:var(--tx);border:0;border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer}
+button,label.b{display:inline-block;background:var(--line);color:var(--tx);border:0;border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer;margin:0}
 button.p{background:var(--ac);color:#111;font-weight:700}
 .bar{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 #log{min-height:24px;color:var(--ac);margin-bottom:12px;white-space:pre-wrap}#log.err{color:#fb7185}
 .row{border-top:1px solid var(--line);padding:10px 0}
 .t{display:grid;grid-template-columns:auto 1fr 1fr 1.4fr auto;gap:6px;margin-bottom:6px}
+.im{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
+.im input{flex:1;min-width:120px}
+.ok{color:#4ade80}.no{color:#fb7185}
 textarea{direction:rtl}
+#gal{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+#gal img{height:90px;border-radius:8px;background:repeating-conic-gradient(#334155 0 25%,#1e293b 0 50%) 0 0/16px 16px}
 </style>
 </head>
 <body>
@@ -29,6 +33,12 @@ textarea{direction:rtl}
 <label>Groq API Key<input id="groq" type="password" autocomplete="off"></label>
 <label>GitHub Token (Contents + Actions: write)<input id="gh" type="password" autocomplete="off"></label>
 <label>ریپو (مثلاً amir/typo-studio)<input id="repo" dir="ltr"></label>
+</details>
+
+<details><summary>کتابخانه‌ی عکس (<span id="libn">؟</span>)</summary>
+<label>نام عکس (انگلیسی، مثلاً burger)<input id="ln" dir="ltr"></label>
+<label class="b" style="margin-top:8px">انتخاب عکس با پس‌زمینه‌ی یک‌رنگ<input id="lf" type="file" accept="image/*" hidden></label>
+<div id="gal"></div>
 </details>
 
 <section>
@@ -41,6 +51,7 @@ textarea{direction:rtl}
 <div id="log" role="status"></div>
 
 <section id="ed" hidden>
+<div><span id="need"></span> <button id="copyall">کپی پرامپت عکس‌های جدید</button></div>
 <div id="rows"></div>
 <div class="bar">
 <button id="add">+ صحنه</button>
@@ -49,14 +60,56 @@ textarea{direction:rtl}
 </div>
 </section>
 <audio id="pl"></audio>
+<datalist id="dl"></datalist>
 
 <script>
 const $=s=>document.querySelector(s), G='https://api.groq.com/openai/v1';
-const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+const sl=v=>(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+const cl=(v,a,b)=>Math.max(a,Math.min(b,v|0));
 const S={seg:[],scenes:[],dur:0,file:null}, STY=['title','keyword','number','quote'];
-['groq','gh','repo'].forEach(k=>{const e=$('#'+k);e.value=localStorage.getItem(k)||'';e.onchange=()=>localStorage.setItem(k,e.value.trim())});
+let LIB=new Set(), NEED=[];
+['groq','gh','repo'].forEach(k=>{const e=$('#'+k);e.value=localStorage.getItem(k)||'';e.onchange=()=>{localStorage.setItem(k,e.value.trim());loadLib()}});
 const log=(m,err)=>{$('#log').textContent=m;$('#log').className=err?'err':''};
 const fmt=t=>{const p=(n,l=2)=>String(n).padStart(l,'0');return `${p(Math.floor(t/3600))}:${p(Math.floor(t%3600/60))}:${p(Math.floor(t%60))},${p(Math.floor((t%1)*1000),3)}`};
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const prm=s=>`${s.replace(/-/g,' ')}, hand-drawn comic ink illustration, bold black outline, vivid saturated colors, single object centered, isolated on a flat solid magenta background (#DD0F7A), no shadow, no text, vertical 9:16`;
+const GH=()=>({Authorization:'Bearer '+$('#gh').value.trim(),Accept:'application/vnd.github+json'});
+
+async function loadLib(){
+  const repo=$('#repo').value.trim(); if(!repo||!$('#gh').value.trim()) return;
+  try{
+    const r=await fetch(`https://api.github.com/repos/${repo}/contents/public/library`,{headers:GH()});
+    LIB=new Set(r.ok?(await r.json()).filter(f=>f.name.endsWith('.png')).map(f=>f.name.slice(0,-4)):[]);
+    $('#libn').textContent=LIB.size+' عکس';
+    $('#dl').innerHTML=[...LIB].map(x=>`<option value="${x}">`).join('');
+    if(!$('#ed').hidden) draw();
+  }catch(e){}
+}
+loadLib();
+
+async function chat(key,body){
+  for(let t=0;t<5;t++){
+    const r=await fetch(G+'/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(r.status==429){const w=+r.headers.get('retry-after')||25;log(`محدودیت Groq؛ ${w} ثانیه صبر…`);await wait(w*1000+500);continue}
+    const d=await r.json(); if(!r.ok) throw new Error(d.error?.message||r.status);
+    return d.choices[0].message.content;
+  }
+  throw new Error('محدودیت Groq؛ چند دقیقه بعد دوباره امتحان کن');
+}
+
+function chunks(words){
+  const out=[]; let cur=[];
+  const flush=()=>{if(cur.length){out.push({start:+cur[0].start.toFixed(2),end:+cur.at(-1).end.toFixed(2),text:cur.map(w=>w.word.trim()).join(' ')});cur=[]}};
+  words.forEach((w,i)=>{
+    cur.push(w);
+    const nx=words[i+1], gap=nx?nx.start-w.end:9, pu=/[.!?؟،,؛:…]$/.test(w.word.trim());
+    if(cur.length>=7||(cur.length>=3&&(gap>.4||pu))) flush();
+  });
+  flush(); return out;
+}
+
+const SYS=first=>`You edit Persian kinetic-typography videos for Instagram Reels. Input: numbered short speech segments. Create MANY short scenes covering about 75% of the speech (skip only filler and repetition). Each scene = 1-2 consecutive segments (from/to, inclusive). text = Persian on-screen text, max 8 words, condensed from the speech (fix spelling using the reference script if given), with 1-2 key words wrapped in *asterisks*. style: ${first?'title (first scene only) | ':''}keyword | number (a figure is the point) | quote. image: only when a concrete drawable object, animal, food or place is spoken about (roughly 1 in 3 scenes, otherwise ""): prefer one of the existing slugs if it fits, otherwise a NEW short English slug (lowercase, hyphens, one single object, e.g. "coffee-cup"). fa: Persian name of that object (1-2 words). Scenes in order, no overlap. Reply with JSON only: {"scenes":[{"from":0,"to":1,"text":"...","style":"keyword","image":"","fa":""}]}`;
 
 $('#go').onclick=async()=>{
   const f=$('#audio').files[0], key=$('#groq').value.trim();
@@ -64,32 +117,45 @@ $('#go').onclick=async()=>{
   S.file=f; $('#pl').src=URL.createObjectURL(f);
   if(!$('#name').value) $('#name').value='ep'+Date.now().toString().slice(-6);
   try{
+    await loadLib();
     log('در حال تبدیل صدا به متن…');
     const fd=new FormData();
     fd.append('file',f);fd.append('model','whisper-large-v3');fd.append('language','fa');
-    fd.append('response_format','verbose_json');fd.append('timestamp_granularities[]','segment');
-    let r=await fetch(G+'/audio/transcriptions',{method:'POST',headers:{Authorization:'Bearer '+key},body:fd});
-    let d=await r.json(); if(!r.ok) throw new Error(d.error?.message||r.status);
-    S.seg=d.segments.map(s=>({start:+s.start.toFixed(2),end:+s.end.toFixed(2),text:s.text.trim()}));
+    fd.append('response_format','verbose_json');fd.append('timestamp_granularities[]','word');fd.append('timestamp_granularities[]','segment');
+    const r=await fetch(G+'/audio/transcriptions',{method:'POST',headers:{Authorization:'Bearer '+key},body:fd});
+    const d=await r.json(); if(!r.ok) throw new Error(d.error?.message||r.status);
+    S.seg=d.words?.length?chunks(d.words):d.segments.map(s=>({start:+s.start.toFixed(2),end:+s.end.toFixed(2),text:s.text.trim()}));
     S.dur=+(d.duration||S.seg.at(-1).end).toFixed(2);
 
-    log('در حال انتخاب بخش‌های مهم…');
-    const sys='You edit Persian kinetic-typography videos for Instagram Reels. From the numbered speech segments pick ONLY the important parts (about 30-40% of the content: hooks, key facts, numbers, punchlines). For each pick return from/to segment index (inclusive), text = short Persian on-screen text (max 10 words, condensed from the speech; fix spelling using the reference script if given) with 1-3 key words wrapped in *asterisks*, and style: title (first scene only) | keyword | number (when a figure is the point) | quote. Scenes in order, no overlap. Reply with JSON only: {"scenes":[{"from":0,"to":1,"text":"...","style":"title"}]}';
-    const sc=$('#script').value.trim();
-    const user=S.seg.map((s,i)=>i+': '+s.text).join('\n')+(sc?'\n\nReference script:\n'+sc:'');
-    r=await fetch(G+'/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},
-      body:JSON.stringify({model:'openai/gpt-oss-120b',temperature:.3,reasoning_effort:'low',messages:[{role:'system',content:sys},{role:'user',content:user}]})});
-    d=await r.json(); if(!r.ok) throw new Error(d.error?.message||r.status);
-    const js=JSON.parse(d.choices[0].message.content.match(/\{[\s\S]*\}/)[0]), n=S.seg.length-1;
-    S.scenes=js.scenes.map(c=>{
-      const a=Math.max(0,Math.min(n,c.from|0)), b=Math.max(a,Math.min(n,c.to|0));
-      return {start:S.seg[a].start,end:S.seg[b].end,text:c.text,style:STY.includes(c.style)?c.style:'keyword'};
-    });
+    const sc=$('#script').value.trim(), B=60, all=[];
+    for(let lo=0;lo<S.seg.length;lo+=B){
+      const hi=Math.min(S.seg.length,lo+B)-1;
+      log(`انتخاب صحنه‌ها… (${hi+1} از ${S.seg.length})`);
+      const user=`Existing image slugs: ${[...LIB].join(', ')||'none'}\n\n`+S.seg.slice(lo,hi+1).map((s,j)=>(lo+j)+': '+s.text).join('\n')+(sc?'\n\nReference script:\n'+sc:'');
+      const txt=await chat(key,{model:'openai/gpt-oss-120b',temperature:.3,reasoning_effort:'low',messages:[{role:'system',content:SYS(lo===0)},{role:'user',content:user}]});
+      let js; try{js=JSON.parse(txt.match(/\{[\s\S]*\}/)[0])}catch(e){continue}
+      for(const c of js.scenes||[]){
+        const a=cl(c.from,lo,hi), b=cl(c.to,a,hi);
+        all.push({start:S.seg[a].start,end:S.seg[b].end,text:c.text||'',style:STY.includes(c.style)?c.style:'keyword',image:sl(c.image),fa:c.fa||''});
+      }
+    }
+    all.sort((a,b)=>a.start-b.start);
+    for(let i=1;i<all.length;i++) if(all[i-1].end>all[i].start) all[i-1].end=all[i].start;
+    S.scenes=all.filter(s=>s.end-s.start>.3);
     draw(); $('#ed').hidden=false;
-    log(`${S.scenes.length} صحنه آماده است. ویرایش کن، بعد ارسال.`);
+    log(`${S.scenes.length} صحنه آماده است. ویرایش کن، عکس‌های جدید را بساز، بعد ارسال.`);
   }catch(e){log('خطا: '+e.message,1)}
 };
 
+function bd(i){
+  const s=S.scenes[i], e=$('#b'+i); if(!e) return;
+  e.textContent=!s.image?'':LIB.has(s.image)?'✓ موجود':'✗ بساز: '+(s.fa||s.image);
+  e.className=LIB.has(s.image)?'ok':'no';
+}
+function sum(){
+  NEED=[...new Set(S.scenes.map(s=>s.image).filter(s=>s&&!LIB.has(s)))];
+  $('#need').textContent=NEED.length?`${NEED.length} عکس جدید لازم است`:'همه‌ی عکس‌ها موجودند';
+}
 function draw(){
   $('#rows').innerHTML=S.scenes.map((s,i)=>`<div class="row"><div class="t">
     <button data-p="${i}" aria-label="پخش">▶</button>
@@ -97,43 +163,110 @@ function draw(){
     <input type="number" step=".1" value="${s.end}" data-i="${i}" data-k="end" aria-label="پایان">
     <select data-i="${i}" data-k="style">${STY.map(o=>`<option ${o==s.style?'selected':''}>${o}</option>`).join('')}</select>
     <button data-d="${i}" aria-label="حذف">✕</button></div>
-    <textarea rows="2" data-i="${i}" data-k="text">${esc(s.text)}</textarea></div>`).join('');
+    <textarea rows="2" data-i="${i}" data-k="text">${esc(s.text)}</textarea>
+    <div class="im"><input dir="ltr" list="dl" placeholder="image-name" value="${esc(s.image)}" data-i="${i}" data-k="image">
+    <span id="b${i}"></span>
+    <button data-c="${i}">پرامپت</button>
+    <label class="b">آپلود<input type="file" accept="image/*" hidden data-u="${i}"></label></div></div>`).join('');
+  S.scenes.forEach((_,i)=>bd(i)); sum();
 }
-$('#rows').addEventListener('input',e=>{const {i,k}=e.target.dataset;if(i!=null)S.scenes[i][k]=(k=='start'||k=='end')?+e.target.value:e.target.value});
+$('#rows').addEventListener('input',e=>{
+  const {i,k}=e.target.dataset; if(i==null) return;
+  const v=e.target.value;
+  S.scenes[i][k]=(k=='start'||k=='end')?+v:k=='image'?sl(v):v;
+  if(k=='image'){bd(i);sum()}
+});
 let stopAt=0; const pl=$('#pl');
 pl.ontimeupdate=()=>{if(stopAt&&pl.currentTime>=stopAt){pl.pause();stopAt=0}};
 $('#rows').addEventListener('click',e=>{
   const b=e.target.closest('button'); if(!b) return;
   if(b.dataset.p!=null){const s=S.scenes[b.dataset.p];pl.currentTime=s.start;stopAt=s.end;pl.play()}
   if(b.dataset.d!=null){S.scenes.splice(b.dataset.d,1);draw()}
+  if(b.dataset.c!=null){const s=S.scenes[b.dataset.c].image;if(s){navigator.clipboard.writeText(prm(s));log('پرامپت کپی شد: '+s)}}
 });
-$('#add').onclick=()=>{const e=S.scenes.at(-1)?.end||0;S.scenes.push({start:e,end:+(e+3).toFixed(1),text:'',style:'keyword'});draw()};
+$('#rows').addEventListener('change',e=>{
+  const u=e.target.dataset.u; if(u==null||!e.target.files[0]) return;
+  const s=S.scenes[u].image; if(!s) return log('اول نام عکس را بنویس.',1);
+  addImage(s,e.target.files[0]);
+});
+$('#lf').onchange=e=>{const s=sl($('#ln').value); if(!s||!e.target.files[0]) return log('نام انگلیسی عکس را بنویس.',1); addImage(s,e.target.files[0])};
+$('#copyall').onclick=()=>{if(NEED.length){navigator.clipboard.writeText(NEED.map(prm).join('\n\n'));log('پرامپت '+NEED.length+' عکس کپی شد.')}};
+$('#add').onclick=()=>{const e=S.scenes.at(-1)?.end||0;S.scenes.push({start:e,end:+(e+3).toFixed(1),text:'',style:'keyword',image:'',fa:''});draw()};
 $('#srt').onclick=()=>{
   const t=S.seg.map((s,i)=>`${i+1}\n${fmt(s.start)} --> ${fmt(s.end)}\n${s.text}\n`).join('\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/plain'}));a.download=($('#name').value||'podcast')+'.srt';a.click();
 };
 
-const b64=async f=>new Promise(r=>{const x=new FileReader();x.onload=()=>r(x.result.split(',')[1]);x.readAsDataURL(f)});
+// عکس با پس‌زمینه‌ی یک‌رنگ -> برش + حاشیه‌ی سفید (استیکر)
+async function sticker(file){
+  const img=await createImageBitmap(file);
+  const k=Math.min(1,760/Math.max(img.width,img.height)), w=Math.round(img.width*k), h=Math.round(img.height*k);
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const x=c.getContext('2d',{willReadFrequently:true}); x.drawImage(img,0,0,w,h);
+  const id=x.getImageData(0,0,w,h), d=id.data;
+  let r=0,g=0,b=0,n=0; const add=(px,py)=>{const i=(py*w+px)*4;r+=d[i];g+=d[i+1];b+=d[i+2];n++};
+  for(let i=0;i<w;i++){add(i,0);add(i,h-1)} for(let j=0;j<h;j++){add(0,j);add(w-1,j)}
+  r/=n;g/=n;b/=n;
+  const near=p=>{const i=p*4,dr=d[i]-r,dg=d[i+1]-g,db=d[i+2]-b;return dr*dr+dg*dg+db*db<5000};
+  const bg=new Uint8Array(w*h), st=[];
+  const push=p=>{if(!bg[p]&&near(p)){bg[p]=1;st.push(p)}};
+  for(let i=0;i<w;i++){push(i);push((h-1)*w+i)} for(let j=0;j<h;j++){push(j*w);push(j*w+w-1)}
+  while(st.length){const p=st.pop(),px=p%w,py=(p/w)|0;if(px>0)push(p-1);if(px<w-1)push(p+1);if(py>0)push(p-w);if(py<h-1)push(p+w)}
+  const m=Uint8Array.from(bg,v=>1-v);
+  for(let t=0;t<2;t++){const o=m.slice();for(let y=1;y<h-1;y++)for(let xx=1;xx<w-1;xx++){const p=y*w+xx;if(o[p]&&!(o[p-1]&&o[p+1]&&o[p-w]&&o[p+w]))m[p]=0}}
+  let x0=w,y0=h,x1=0,y1=0;
+  for(let p=0;p<w*h;p++){d[p*4+3]=m[p]?255:0;if(m[p]){const px=p%w,py=(p/w)|0;if(px<x0)x0=px;if(px>x1)x1=px;if(py<y0)y0=py;if(py>y1)y1=py}}
+  if(x1<=x0) throw new Error('شیء پیدا نشد؛ پس‌زمینه باید یک‌رنگ باشد.');
+  x.putImageData(id,0,0);
+  const bw=x1-x0+1, bh=y1-y0+1, R=Math.round(Math.max(bw,bh)*.03), pad=R*2+8;
+  const cut=document.createElement('canvas'); cut.width=bw; cut.height=bh;
+  cut.getContext('2d').drawImage(c,x0,y0,bw,bh,0,0,bw,bh);
+  const wt=document.createElement('canvas'); wt.width=bw; wt.height=bh;
+  const wx=wt.getContext('2d'); wx.drawImage(cut,0,0); wx.globalCompositeOperation='source-in'; wx.fillStyle='#fff'; wx.fillRect(0,0,bw,bh);
+  const o=document.createElement('canvas'); o.width=bw+pad*2; o.height=bh+pad*2;
+  const ox=o.getContext('2d');
+  ox.shadowColor='rgba(0,0,0,.35)'; ox.shadowBlur=R*.8; ox.shadowOffsetY=R*.3;
+  for(const rr of [R,R*.5]) for(let a=0;a<24;a++){const t=a/24*Math.PI*2; ox.drawImage(wt,pad+Math.cos(t)*rr,pad+Math.sin(t)*rr)}
+  ox.shadowColor='transparent'; ox.drawImage(cut,pad,pad);
+  return o.toDataURL('image/png');
+}
 async function put(path,content){
-  const repo=$('#repo').value.trim(), H={Authorization:'Bearer '+$('#gh').value.trim(),Accept:'application/vnd.github+json'};
+  const repo=$('#repo').value.trim(), H=GH();
   const g=await fetch(`https://api.github.com/repos/${repo}/contents/${path}`,{headers:H});
   const sha=g.ok?(await g.json()).sha:undefined;
   const r=await fetch(`https://api.github.com/repos/${repo}/contents/${path}`,{method:'PUT',headers:H,body:JSON.stringify({message:'add '+path,content,sha})});
   if(!r.ok) throw new Error((await r.json()).message);
 }
+async function addImage(slug,file){
+  if(!$('#repo').value.trim()||!$('#gh').value.trim()) return log('ریپو و GitHub Token را در تنظیمات وارد کن.',1);
+  try{
+    log('در حال برش عکس…');
+    const url=await sticker(file);
+    const im=new Image(); im.src=url; $('#gal').prepend(im);
+    log('ذخیره در کتابخانه…');
+    await put(`public/library/${slug}.png`,url.split(',')[1]);
+    LIB.add(slug); $('#libn').textContent=LIB.size+' عکس';
+    if(!$('#ed').hidden) draw();
+    log('عکس '+slug+' ذخیره شد.');
+  }catch(e){log('خطا: '+e.message,1)}
+}
+
+const b64=async f=>new Promise(r=>{const x=new FileReader();x.onload=()=>r(x.result.split(',')[1]);x.readAsDataURL(f)});
 $('#send').onclick=async()=>{
   const name=$('#name').value.trim().toLowerCase().replace(/[^a-z0-9-]/g,'')||('ep'+Date.now()), repo=$('#repo').value.trim();
   if(!repo||!$('#gh').value.trim()) return log('ریپو و GitHub Token را در تنظیمات وارد کن.',1);
-  const scenes=S.scenes.filter(s=>s.text.trim()&&s.end>s.start).sort((a,b)=>a.start-b.start);
+  await loadLib();
+  let miss=0;
+  const scenes=S.scenes.filter(s=>s.text.trim()&&s.end>s.start).sort((a,b)=>a.start-b.start)
+    .map(s=>{const ok=s.image&&LIB.has(s.image);if(s.image&&!ok)miss++;return {start:s.start,end:s.end,text:s.text,style:s.style,image:ok?s.image:''}});
   try{
     log('ارسال فایل صوتی…'); await put(`inputs/${name}.mp3`,await b64(S.file));
     log('ارسال صحنه‌ها…');
     await put(`inputs/${name}.json`,btoa(unescape(encodeURIComponent(JSON.stringify({duration:S.dur,scenes},null,1)))));
     log('شروع رندر…');
-    const r=await fetch(`https://api.github.com/repos/${repo}/actions/workflows/render.yml/dispatches`,{method:'POST',
-      headers:{Authorization:'Bearer '+$('#gh').value.trim(),Accept:'application/vnd.github+json'},body:JSON.stringify({ref:'main',inputs:{name}})});
+    const r=await fetch(`https://api.github.com/repos/${repo}/actions/workflows/render.yml/dispatches`,{method:'POST',headers:GH(),body:JSON.stringify({ref:'main',inputs:{name}})});
     if(!r.ok) throw new Error((await r.json()).message);
-    $('#log').innerHTML=`رندر شروع شد. نتیجه (MP4) در Artifacts این صفحه است:<br><a style="color:#facc15" target="_blank" href="https://github.com/${repo}/actions">github.com/${esc(repo)}/actions</a>`;
+    $('#log').innerHTML=`رندر شروع شد${miss?` (${miss} صحنه بدون عکس، چون عکسش هنوز ساخته نشده)`:''}. نتیجه (MP4) در Artifacts این صفحه است:<br><a style="color:#facc15" target="_blank" href="https://github.com/${repo}/actions">github.com/${esc(repo)}/actions</a>`;
   }catch(e){log('خطا: '+e.message,1)}
 };
 </script>
