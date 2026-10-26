@@ -28,19 +28,32 @@ const Scene = ({scene, pal, dur}) => {
   const {fps} = useVideoConfig();
   const words = parse(scene.text);
   const n = words.length || 1;
-  const hasImg = !!scene.image;
+  const list = (scene.images || (scene.image ? [scene.image] : [])).slice(0, 4);
+  const n2 = list.length;
+  const hasImg = n2 > 0;
+  // Feste Boxen pro Bild: Bilder können sich so nie überlappen
+  const box = n2 === 1 ? [860, 700] : n2 === 2 ? [440, 540] : n2 === 3 ? [290, 420] : [440, 330];
+  const imgStag = Math.max(4, Math.min(14, Math.floor((dur * 0.5) / Math.max(n2, 1))));
   const stagger = Math.max(1, Math.min(6, Math.floor((dur * 0.4) / n)));
-  const size = (SIZE[scene.style] || 120) * (n > 10 ? 0.62 : n > 6 ? 0.78 : 1) * (hasImg ? 0.8 : 1);
+  const size = (SIZE[scene.style] || 120) * (n > 10 ? 0.62 : n > 6 ? 0.78 : 1) * (n2 >= 3 ? 0.72 : hasImg ? 0.8 : 1);
   const out = interpolate(f, [dur - 8, dur], [1, 0], {extrapolateLeft: 'clamp'});
   const bar = spring({frame: f - 4, fps, config: {damping: 200}});
-  const pop = spring({frame: f, fps, config: {damping: 9, stiffness: 120}});
-  const rot = (Math.round(scene.start * 10) % 2 ? -1 : 1) * 5;
   return (
     <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', opacity: out, padding: 80}}>
       {hasImg && (
-        <Img src={staticFile(`library/${scene.image}.png`)}
-          style={{height: 700, maxWidth: 860, objectFit: 'contain', marginBottom: 50,
-            transform: `translateY(${Math.sin(f / 14) * 10}px) scale(${pop}) rotate(${rot * pop + Math.sin(f / 18) * 2}deg)`}} />
+        <div style={{display: 'flex', flexWrap: 'wrap', justifyContent: 'center', direction: 'rtl', gap: 24, width: 920, marginBottom: 50}}>
+          {list.map((name, k) => {
+            const pop = spring({frame: f - k * imgStag, fps, config: {damping: 9, stiffness: 120}});
+            const rot = ((Math.round(scene.start * 10) + k) % 2 ? -1 : 1) * 4;
+            return (
+              <div key={k} style={{width: box[0], height: box[1], display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
+                <Img src={staticFile(`library/${name}.png`)}
+                  style={{width: '92%', height: '92%', objectFit: 'contain',
+                    transform: `translateY(${Math.sin(f / 14 + k) * 8}px) scale(${pop * 0.95}) rotate(${rot * pop + Math.sin(f / 18 + k) * 2}deg)`}} />
+              </div>
+            );
+          })}
+        </div>
       )}
       {scene.style === 'quote' && !hasImg && (
         <div style={{fontFamily, fontSize: 300, height: 140, color: pal[1], lineHeight: 1}}>”</div>
@@ -76,7 +89,8 @@ export const Typo = ({scenes = []}) => {
       <div style={{position: 'absolute', width: 700, height: 700, borderRadius: '50%', background: pal[1], opacity: 0.25,
         filter: 'blur(90px)', left: 100 + Math.sin(f / 50) * 160, top: 300 + Math.cos(f / 70) * 220}} />
       {scenes.map((s, i) => {
-        const dur = Math.max(12, Math.round((s.end - s.start) * fps));
+        const full = Math.round((s.end - s.start) * fps);
+        const dur = Math.max(12, full > 36 ? full - 9 : full); // kleine Lücke zur nächsten Szene
         return (
           <Sequence key={i} from={Math.round(s.start * fps)} durationInFrames={dur}>
             <Scene scene={s} pal={palOf(i)} dur={dur} />
