@@ -1,0 +1,61 @@
+{
+ "duration": 64.04,
+ "scenes": [
+  {
+   "start": 0,
+   "end": 5.02,
+   "text": "صبح بدون *قهوه* سیستمم بالا نمیاد",
+   "style": "title",
+   "image": "coffee-cup"
+  },
+  {
+   "start": 5.02,
+   "end": 10.92,
+   "text": "قهوه باتری اضافه‌ای برای *انرژی* روز",
+   "style": "keyword",
+   "image": "battery"
+  },
+  {
+   "start": 10.92,
+   "end": 22.36,
+   "text": "*کافین* واقعا انرژی نمی‌دهد؟",
+   "style": "keyword",
+   "image": "coffein"
+  },
+  {
+   "start": 22.36,
+   "end": 29.94,
+   "text": "قهوه بزرگ‌ترین *کلاه‌بردار* عصبی",
+   "style": "keyword",
+   "image": "brain"
+  },
+  {
+   "start": 30.72,
+   "end": 37.2,
+   "text": "بعد قهوه *خواب* می‌پرسم، شارج می‌شوم",
+   "style": "keyword",
+   "image": "battery"
+  },
+  {
+   "start": 37.2,
+   "end": 43.42,
+   "text": "قهوه مثل وعده‌غذایی، *بیدار* می‌کند",
+   "style": "keyword",
+   "image": "burger"
+  },
+  {
+   "start": 43.42,
+   "end": 52.44,
+   "text": "*آدنوزین* در مغز جمع می‌شود، خستگی می‌آید",
+   "style": "keyword",
+   "image": "brain"
+  },
+  {
+   "start": 52.44,
+   "end": 62.08,
+   "text": "گیرنده‌های مغز *خستگی* را حس می‌کنند",
+   "style": "keyword",
+   "image": "brain"
+  }
+ ]
+}
